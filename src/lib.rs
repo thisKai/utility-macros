@@ -1,3 +1,4 @@
+use itertools::{Itertools, Position};
 use proc_macro::{Ident, Punct, Spacing, TokenStream, TokenTree};
 use std::iter;
 
@@ -38,24 +39,11 @@ fn parse_args(tokens: &mut <proc_macro::TokenStream as IntoIterator>::IntoIter) 
 }
 
 fn modify_tail(mut path: Path, modifier: impl Fn(Ident) -> Ident) -> TokenStream {
-    let new_last_segment = {
-        let last_segment = path.segments.pop().unwrap();
+    let last_segment = path.segments.pop().unwrap();
+    let new_last_segment = modifier(last_segment);
+    path.segments.push(new_last_segment);
 
-        modifier(last_segment)
-    };
-    path.leading_double_colon
-        .then(|| double_colon())
-        .into_iter()
-        .flatten()
-        .chain(
-            path.segments
-                .into_iter()
-                .map(TokenTree::Ident)
-                .map(|tt| iter::once(tt).chain(double_colon()))
-                .flatten(),
-        )
-        .chain(iter::once(TokenTree::Ident(new_last_segment)))
-        .collect()
+    path.tokens().collect::<TokenStream>()
 }
 
 fn parse_comma(tokens: &mut <proc_macro::TokenStream as IntoIterator>::IntoIter) {
@@ -80,7 +68,7 @@ fn parse_first_arg(tokens: &mut <proc_macro::TokenStream as IntoIterator>::IntoI
 fn parse_second_arg(tokens: &mut <proc_macro::TokenStream as IntoIterator>::IntoIter) -> Path {
     let (path, next_token) = parse_path(tokens);
     if let Some(next_token) = next_token {
-        panic!("Unexpected {}", next_token);
+        panic!("Unexpected {next_token}");
     }
     path
 }
@@ -90,29 +78,40 @@ fn parse_path(
 ) -> (Path, Option<TokenTree>) {
     let mut segments = Vec::new();
 
-    let (leading_double_colon, mut look_for_segment) = {
+    let (leading, mut look_for_segment) = {
         match tokens.next().expect("Expected path, unexpected end") {
             TokenTree::Ident(ident) => {
                 segments.push(ident);
-                (false, false)
+                (Leading::Ident, false)
             }
-            TokenTree::Punct(punct)
-                if punct.spacing() == Spacing::Joint && punct.as_char() == ':' =>
-            {
-                if parse_second_colon(tokens) {
-                    (true, true)
-                } else {
-                    panic!("Expected ::");
+            TokenTree::Punct(punct) => match (punct.as_char(), punct.spacing()) {
+                (':', Spacing::Joint) => {
+                    if parse_second_colon(tokens) {
+                        (Leading::DoubleColon, true)
+                    } else {
+                        panic!("Expected ::");
+                    }
                 }
-            }
-            _ => panic!("Expected :: or ident"),
+                ('<', Spacing::Alone) => {
+                    let (path, next_token) = parse_path(tokens);
+
+                    match next_token {
+                        Some(TokenTree::Punct(punct)) if punct.as_char() == '>' => {
+                            (Leading::Turbofish(Box::new(path)), false)
+                        }
+                        Some(other_token) => panic!("Unexpected {other_token}"),
+                        None => {
+                            panic!("Unexpected end")
+                        }
+                    }
+                }
+                _ => panic!("Expected path"),
+            },
+            _ => panic!("Expected path"),
         }
     };
 
-    let mut path = Path {
-        leading_double_colon,
-        segments,
-    };
+    let mut path = Path { leading, segments };
 
     while let Some(token_tree) = tokens.next() {
         if look_for_segment {
@@ -144,8 +143,26 @@ fn parse_path(
 
 #[derive(Debug)]
 struct Path {
-    leading_double_colon: bool,
+    leading: Leading,
     segments: Vec<Ident>,
+}
+impl Path {
+    fn tokens(self) -> impl Iterator<Item = TokenTree> {
+        self.leading.tokens().chain(
+            self.segments
+                .into_iter()
+                .map(TokenTree::Ident)
+                .with_position()
+                .flat_map(|position| match position {
+                    Position::First(tt) | Position::Middle(tt) => {
+                        iter::once(tt).chain(Some(double_colon()).into_iter().flatten())
+                    }
+                    Position::Only(tt) | Position::Last(tt) => {
+                        iter::once(tt).chain(None.into_iter().flatten())
+                    }
+                }),
+        )
+    }
 }
 
 fn double_colon() -> [TokenTree; 2] {
@@ -164,5 +181,29 @@ fn parse_second_colon(tokens: &mut <proc_macro::TokenStream as IntoIterator>::In
             true
         }
         _ => false,
+    }
+}
+
+#[derive(Debug)]
+enum Leading {
+    Ident,
+    DoubleColon,
+    Turbofish(Box<Path>),
+}
+impl Leading {
+    fn tokens(self) -> Box<dyn Iterator<Item = TokenTree>> {
+        match self {
+            Self::Ident => Box::new(None.into_iter()),
+            Self::DoubleColon => Box::new(double_colon().into_iter()),
+            Self::Turbofish(path) => Box::new(
+                iter::once(TokenTree::Punct(Punct::new('<', Spacing::Alone)))
+                    .chain(path.tokens())
+                    .chain(iter::once(TokenTree::Punct(Punct::new(
+                        '>',
+                        Spacing::Alone,
+                    ))))
+                    .chain(double_colon()),
+            ),
+        }
     }
 }
