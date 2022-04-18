@@ -18,6 +18,18 @@ fn insert_before_path_tail_macro_leading_double_colon() {
 }
 
 #[test]
+fn insert_before_path_tail_macro_leading_turbofish_type() {
+    struct Struct;
+    impl Struct {
+        pub fn set_prop() -> bool {
+            true
+        }
+    }
+    let func = insert_before_path_tail!(set_, <Struct>::prop);
+    assert_eq!(func(), <Struct>::set_prop());
+}
+
+#[test]
 fn insert_after_path_tail_macro() {
     mod module {
         pub fn prop_set() -> bool {
