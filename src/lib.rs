@@ -78,61 +78,68 @@ fn parse_first_arg(tokens: &mut <proc_macro::TokenStream as IntoIterator>::IntoI
 }
 
 fn parse_second_arg(tokens: &mut <proc_macro::TokenStream as IntoIterator>::IntoIter) -> Path {
+    let (path, next_token) = parse_path(tokens);
+    if let Some(next_token) = next_token {
+        panic!("Unexpected {}", next_token);
+    }
+    path
+}
+
+fn parse_path(
+    tokens: &mut <proc_macro::TokenStream as IntoIterator>::IntoIter,
+) -> (Path, Option<TokenTree>) {
     let mut segments = Vec::new();
 
     let (leading_double_colon, mut look_for_segment) = {
         match tokens.next().expect("Expected path, unexpected end") {
-            TokenTree::Punct(punct)
-                if punct.spacing() == Spacing::Joint && punct.as_char() == ':' =>
-            {
-                match tokens.next() {
-                    Some(TokenTree::Punct(punct))
-                        if punct.spacing() == Spacing::Alone && punct.as_char() == ':' =>
-                    {
-                        (true, true)
-                    }
-                    _ => panic!("Expected :: or ident"),
-                }
-            }
             TokenTree::Ident(ident) => {
                 segments.push(ident);
                 (false, false)
             }
+            TokenTree::Punct(punct)
+                if punct.spacing() == Spacing::Joint && punct.as_char() == ':' =>
+            {
+                if parse_second_colon(tokens) {
+                    (true, true)
+                } else {
+                    panic!("Expected ::");
+                }
+            }
             _ => panic!("Expected :: or ident"),
         }
     };
+
+    let mut path = Path {
+        leading_double_colon,
+        segments,
+    };
+
     while let Some(token_tree) = tokens.next() {
         if look_for_segment {
             match token_tree {
                 TokenTree::Ident(ident) => {
-                    segments.push(ident);
+                    path.segments.push(ident);
                     look_for_segment = false;
                 }
-                _ => panic!("Expected ident"),
+                _ => panic!("Expected path segment"),
             }
         } else {
             match token_tree {
                 TokenTree::Punct(punct)
                     if punct.spacing() == Spacing::Joint && punct.as_char() == ':' =>
                 {
-                    match tokens.next() {
-                        Some(TokenTree::Punct(punct))
-                            if punct.spacing() == Spacing::Alone && punct.as_char() == ':' =>
-                        {
-                            look_for_segment = true;
-                        }
-                        _ => panic!("Expected ::"),
+                    if parse_second_colon(tokens) {
+                        look_for_segment = true;
+                    } else {
+                        panic!("Expected ::");
                     }
                 }
-                _ => panic!("Expected ::"),
+                _ => return (path, Some(token_tree)),
             }
         }
     }
 
-    Path {
-        leading_double_colon,
-        segments,
-    }
+    (path, None)
 }
 
 #[derive(Debug)]
@@ -147,4 +154,15 @@ fn double_colon() -> [TokenTree; 2] {
         Punct::new(':', Spacing::Alone),
     ]
     .map(TokenTree::Punct)
+}
+
+fn parse_second_colon(tokens: &mut <proc_macro::TokenStream as IntoIterator>::IntoIter) -> bool {
+    match tokens.next() {
+        Some(TokenTree::Punct(punct))
+            if punct.spacing() == Spacing::Alone && punct.as_char() == ':' =>
+        {
+            true
+        }
+        _ => false,
+    }
 }
