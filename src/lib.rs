@@ -43,20 +43,17 @@ fn modify_tail(mut path: Path, modifier: impl Fn(Ident) -> Ident) -> TokenStream
 
         modifier(last_segment)
     };
-
-    path.segments
+    path.leading_double_colon
+        .then(|| double_colon())
         .into_iter()
-        .map(TokenTree::Ident)
-        .map(|tt| {
-            iter::once(tt).chain(
-                [
-                    Punct::new(':', Spacing::Joint),
-                    Punct::new(':', Spacing::Alone),
-                ]
-                .map(TokenTree::Punct),
-            )
-        })
         .flatten()
+        .chain(
+            path.segments
+                .into_iter()
+                .map(TokenTree::Ident)
+                .map(|tt| iter::once(tt).chain(double_colon()))
+                .flatten(),
+        )
         .chain(iter::once(TokenTree::Ident(new_last_segment)))
         .collect()
 }
@@ -83,7 +80,7 @@ fn parse_first_arg(tokens: &mut <proc_macro::TokenStream as IntoIterator>::IntoI
 fn parse_second_arg(tokens: &mut <proc_macro::TokenStream as IntoIterator>::IntoIter) -> Path {
     let mut segments = Vec::new();
 
-    let mut look_for_segment = {
+    let (leading_double_colon, mut look_for_segment) = {
         match tokens.next().expect("Expected path, unexpected end") {
             TokenTree::Punct(punct)
                 if punct.spacing() == Spacing::Joint && punct.as_char() == ':' =>
@@ -92,14 +89,14 @@ fn parse_second_arg(tokens: &mut <proc_macro::TokenStream as IntoIterator>::Into
                     Some(TokenTree::Punct(punct))
                         if punct.spacing() == Spacing::Alone && punct.as_char() == ':' =>
                     {
-                        true
+                        (true, true)
                     }
                     _ => panic!("Expected :: or ident"),
                 }
             }
             TokenTree::Ident(ident) => {
                 segments.push(ident);
-                false
+                (false, false)
             }
             _ => panic!("Expected :: or ident"),
         }
@@ -132,10 +129,22 @@ fn parse_second_arg(tokens: &mut <proc_macro::TokenStream as IntoIterator>::Into
         }
     }
 
-    Path { segments }
+    Path {
+        leading_double_colon,
+        segments,
+    }
 }
 
 #[derive(Debug)]
 struct Path {
+    leading_double_colon: bool,
     segments: Vec<Ident>,
+}
+
+fn double_colon() -> [TokenTree; 2] {
+    [
+        Punct::new(':', Spacing::Joint),
+        Punct::new(':', Spacing::Alone),
+    ]
+    .map(TokenTree::Punct)
 }
