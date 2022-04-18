@@ -42,9 +42,9 @@ pub(crate) fn parse(
                         }
                     }
                 }
-                _ => panic!("Expected path"),
+                (punc, _) => panic!("Expected path, unexpected {punc}"),
             },
-            _ => panic!("Expected path"),
+            other => panic!("Expected path, unexpected {other}"),
         }
     };
 
@@ -57,7 +57,7 @@ pub(crate) fn parse(
                     path.segments.push(ident);
                     look_for_segment = false;
                 }
-                _ => panic!("Expected path segment"),
+                other => panic!("Expected path segment, unexpected {other}"),
             }
         } else {
             match token_tree {
