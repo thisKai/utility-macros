@@ -5,51 +5,43 @@ use std::iter;
 pub fn insert_before_path_tail(tokens: TokenStream) -> TokenStream {
     let mut tokens = tokens.into_iter();
 
-    let ident = parse_first_arg(&mut tokens);
-    parse_comma(&mut tokens);
-    let mut path = parse_second_arg(&mut tokens);
+    let (ident, path) = parse_args(&mut tokens);
 
-    let new_last_segment = {
-        let last_segment = path.segments.pop().unwrap();
-
+    modify_tail(path, |last_segment| {
         let mut ident_string = ident.to_string();
         ident_string.push_str(&last_segment.to_string());
 
         Ident::new(&ident_string, last_segment.span())
-    };
-
-    path.segments
-        .into_iter()
-        .map(TokenTree::Ident)
-        .map(|tt| {
-            iter::once(tt).chain(
-                [
-                    Punct::new(':', Spacing::Joint),
-                    Punct::new(':', Spacing::Alone),
-                ]
-                .map(TokenTree::Punct),
-            )
-        })
-        .flatten()
-        .chain(iter::once(TokenTree::Ident(new_last_segment)))
-        .collect()
+    })
 }
 
 #[proc_macro]
 pub fn insert_after_path_tail(tokens: TokenStream) -> TokenStream {
     let mut tokens = tokens.into_iter();
 
-    let ident = parse_first_arg(&mut tokens);
-    parse_comma(&mut tokens);
-    let mut path = parse_second_arg(&mut tokens);
+    let (ident, path) = parse_args(&mut tokens);
 
-    let new_last_segment = {
-        let last_segment = path.segments.pop().unwrap();
-
+    modify_tail(path, |last_segment| {
         let mut ident_string = last_segment.to_string();
         ident_string.push_str(&ident.to_string());
 
         Ident::new(&ident_string, last_segment.span())
+    })
+}
+
+fn parse_args(tokens: &mut <proc_macro::TokenStream as IntoIterator>::IntoIter) -> (Ident, Path) {
+    let ident = parse_first_arg(tokens);
+    parse_comma(tokens);
+    let path = parse_second_arg(tokens);
+
+    (ident, path)
+}
+
+fn modify_tail(mut path: Path, modifier: impl Fn(Ident) -> Ident) -> TokenStream {
+    let new_last_segment = {
+        let last_segment = path.segments.pop().unwrap();
+
+        modifier(last_segment)
     };
 
     path.segments
@@ -68,7 +60,6 @@ pub fn insert_after_path_tail(tokens: TokenStream) -> TokenStream {
         .chain(iter::once(TokenTree::Ident(new_last_segment)))
         .collect()
 }
-
 
 fn parse_comma(tokens: &mut <proc_macro::TokenStream as IntoIterator>::IntoIter) {
     match tokens.next() {
@@ -123,6 +114,7 @@ fn parse_second_arg(tokens: &mut <proc_macro::TokenStream as IntoIterator>::Into
 
     Path { segments }
 }
+
 #[derive(Debug)]
 struct Path {
     segments: Vec<Ident>,
