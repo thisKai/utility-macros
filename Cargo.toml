@@ -7,3 +7,6 @@ edition = "2021"
 proc-macro = true
 
 [dependencies]
+
+[dev-dependencies]
+test-crate = { path = "test-crate" }
