@@ -1,5 +1,5 @@
 use itertools::{Itertools, Position};
-use proc_macro::{Ident, Punct, Spacing, TokenStream, TokenTree};
+use proc_macro::{Delimiter, Ident, Punct, Spacing, TokenStream, TokenTree};
 use std::iter;
 
 pub(crate) fn modify_tail(mut path: Path, modifier: impl Fn(Ident) -> Ident) -> TokenStream {
@@ -38,12 +38,21 @@ pub(crate) fn parse(
                         }
                         Some(other_token) => panic!("Unexpected {other_token}"),
                         None => {
-                            panic!("Unexpected end")
+                            panic!("Unexpected end after {punct}")
                         }
                     }
                 }
                 (punc, _) => panic!("Expected path, unexpected {punc}"),
             },
+            TokenTree::Group(group) if group.delimiter() == Delimiter::None => {
+                let (path, next_token) = parse(&mut group.stream().into_iter());
+
+                if let Some(next_token) = next_token {
+                    panic!("Unexpected extra {next_token}");
+                }
+
+                return (path, tokens.next());
+            }
             other => panic!("Expected path, unexpected {other}"),
         }
     };
