@@ -1,7 +1,16 @@
 use utility_macros::{insert_after_path_tail, insert_before_path_tail};
 
 #[test]
-fn insert_before_path_tail_macro() {
+fn insert_before_path_tail_macro_ident() {
+    fn set_prop() -> bool {
+        true
+    }
+    let func = insert_before_path_tail!(set_, prop);
+    assert_eq!(func(), set_prop());
+}
+
+#[test]
+fn insert_before_path_tail_macro_path() {
     mod module {
         pub fn set_prop() -> bool {
             true
